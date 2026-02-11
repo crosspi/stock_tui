@@ -5,7 +5,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{
         Block, Borders, canvas::{Canvas, Context as CanvasContext},
-        Clear, List, ListItem, Paragraph, Tabs,
+        Clear, List, ListItem, Paragraph,
     },
     Frame,
 };
@@ -33,6 +33,11 @@ pub fn draw(f: &mut Frame, app: &App) {
     if app.input_mode == InputMode::AddStock {
         draw_input_popup(f, app);
     }
+
+    // 快捷键帮助弹窗
+    if app.input_mode == InputMode::HelpScreen {
+        draw_help_popup(f, app);
+    }
 }
 
 /// 正常布局
@@ -42,17 +47,15 @@ fn draw_normal_layout(f: &mut Frame, app: &App) {
         .constraints([
             Constraint::Length(5),  // 行情概览
             Constraint::Min(12),   // K线图
-            Constraint::Length(2), // K线周期选择
             Constraint::Length(8), // 自选股列表
-            Constraint::Length(2), // 状态栏 + 快捷键
+            Constraint::Length(1), // 状态栏
         ])
         .split(f.area());
 
     draw_quote_info(f, app, chunks[0]);
     draw_kline_chart(f, app, chunks[1]);
-    draw_timeframe_tabs(f, app, chunks[2]);
-    draw_watchlist(f, app, chunks[3]);
-    draw_status_bar(f, app, chunks[4]);
+    draw_watchlist(f, app, chunks[2]);
+    draw_status_bar(f, app, chunks[3]);
 }
 
 /// 全屏K线图布局
@@ -62,16 +65,14 @@ fn draw_fullscreen_chart(f: &mut Frame, app: &App) {
         .constraints([
             Constraint::Length(3),  // 精简行情信息
             Constraint::Min(10),   // K线图（占满）
-            Constraint::Length(2), // K线周期选择
-            Constraint::Length(1), // 快捷键
+            Constraint::Length(1), // 状态栏
         ])
         .split(f.area());
 
     // 精简行情头部
     draw_compact_quote(f, app, chunks[0]);
     draw_kline_chart(f, app, chunks[1]);
-    draw_timeframe_tabs(f, app, chunks[2]);
-    draw_fullscreen_status(f, app, chunks[3]);
+    draw_fullscreen_status(f, app, chunks[2]);
 }
 
 /// 精简行情信息（全屏模式用）
@@ -124,15 +125,16 @@ fn draw_compact_quote(f: &mut Frame, app: &App, area: Rect) {
 /// 全屏模式状态栏
 fn draw_fullscreen_status(f: &mut Frame, app: &App, area: Rect) {
     let mut spans = vec![
-        Span::styled(" f", Style::default().fg(Color::Yellow)),
-        Span::styled(":退出全屏 ", Style::default().fg(Color::DarkGray)),
-        Span::styled("←→", Style::default().fg(Color::Yellow)),
-        Span::styled(":移动游标 ", Style::default().fg(Color::DarkGray)),
-        Span::styled("1-7", Style::default().fg(Color::Yellow)),
-        Span::styled(":切换周期 ", Style::default().fg(Color::DarkGray)),
-        Span::styled("Esc", Style::default().fg(Color::Yellow)),
-        Span::styled(":取消游标 ", Style::default().fg(Color::DarkGray)),
+        Span::styled(" ?", Style::default().fg(Color::Yellow)),
+        Span::styled(" 快捷键", Style::default().fg(Color::DarkGray)),
     ];
+
+    // 显示当前周期
+    spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+    spans.push(Span::styled(
+        app.timeframe.label(),
+        Style::default().fg(Color::Cyan),
+    ));
 
     // 如果有游标数据，显示在状态栏
     if let Some(kline) = app.cursor_kline(area.width as usize) {
@@ -489,44 +491,7 @@ fn draw_kline_chart(f: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-/// 绘制K线周期选择
-fn draw_timeframe_tabs(f: &mut Frame, app: &App, area: Rect) {
-    let titles: Vec<Line> = TimeFrame::all()
-        .iter()
-        .map(|tf| {
-            let style = if *tf == app.timeframe {
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::DarkGray)
-            };
-            Line::from(Span::styled(tf.short_label(), style))
-        })
-        .collect();
 
-    let selected = TimeFrame::all()
-        .iter()
-        .position(|tf| *tf == app.timeframe)
-        .unwrap_or(0);
-
-    let tabs = Tabs::new(titles)
-        .select(selected)
-        .block(
-            Block::default()
-                .title(" 周期 [1-7切换] ")
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::DarkGray)),
-        )
-        .highlight_style(
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        )
-        .divider(Span::raw(" │ "));
-
-    f.render_widget(tabs, area);
-}
 
 /// 绘制自选股列表
 fn draw_watchlist(f: &mut Frame, app: &App, area: Rect) {
@@ -603,36 +568,16 @@ fn draw_watchlist(f: &mut Frame, app: &App, area: Rect) {
 
 /// 绘制底部状态栏
 fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
-    let chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
-        .split(area);
-
-    // 状态消息
     let status = Paragraph::new(Line::from(vec![
         Span::styled(" ", Style::default()),
         Span::styled(&app.status_message, Style::default().fg(Color::DarkGray)),
+        Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
+        Span::styled(app.timeframe.label(), Style::default().fg(Color::Cyan)),
+        Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
+        Span::styled("?", Style::default().fg(Color::Yellow)),
+        Span::styled(" 快捷键", Style::default().fg(Color::DarkGray)),
     ]));
-    f.render_widget(status, chunks[0]);
-
-    // 快捷键提示
-    let keys = Paragraph::new(Line::from(vec![
-        Span::styled("q", Style::default().fg(Color::Yellow)),
-        Span::styled(":退出 ", Style::default().fg(Color::DarkGray)),
-        Span::styled("f", Style::default().fg(Color::Yellow)),
-        Span::styled(":全屏K线 ", Style::default().fg(Color::DarkGray)),
-        Span::styled("a", Style::default().fg(Color::Yellow)),
-        Span::styled(":添加 ", Style::default().fg(Color::DarkGray)),
-        Span::styled("d", Style::default().fg(Color::Yellow)),
-        Span::styled(":删除 ", Style::default().fg(Color::DarkGray)),
-        Span::styled("r", Style::default().fg(Color::Yellow)),
-        Span::styled(":刷新 ", Style::default().fg(Color::DarkGray)),
-        Span::styled("←→", Style::default().fg(Color::Yellow)),
-        Span::styled(":游标 ", Style::default().fg(Color::DarkGray)),
-        Span::styled("↑↓", Style::default().fg(Color::Yellow)),
-        Span::styled(":选股", Style::default().fg(Color::DarkGray)),
-    ]));
-    f.render_widget(keys, chunks[1]);
+    f.render_widget(status, area);
 }
 
 /// 绘制添加股票的输入弹窗
@@ -658,6 +603,112 @@ fn draw_input_popup(f: &mut Frame, app: &App) {
     );
 
     f.render_widget(input, area);
+}
+
+/// 绘制快捷键帮助弹窗
+fn draw_help_popup(f: &mut Frame, app: &App) {
+    let area = centered_rect(60, 20, f.area());
+    f.render_widget(Clear, area);
+
+    let timeframes = [
+        ("1", "5分钟",  TimeFrame::Min5),
+        ("2", "15分钟", TimeFrame::Min15),
+        ("3", "30分钟", TimeFrame::Min30),
+        ("4", "60分钟", TimeFrame::Min60),
+        ("5", "日K",    TimeFrame::Daily),
+        ("6", "周K",    TimeFrame::Weekly),
+        ("7", "月K",    TimeFrame::Monthly),
+    ];
+
+    // 构建周期行
+    let mut tf_spans: Vec<Span> = vec![Span::styled("  ", Style::default())];
+    for (key, label, tf) in &timeframes {
+        let is_active = app.timeframe == *tf;
+        tf_spans.push(Span::styled(
+            format!(" {} ", key),
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        ));
+        let style = if is_active {
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::White)
+        };
+        tf_spans.push(Span::styled(format!("{} ", label), style));
+        if is_active {
+            tf_spans.push(Span::styled("◀ ", Style::default().fg(Color::Cyan)));
+        }
+    }
+
+    let help_lines = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  ── 基本操作 ──", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        ]),
+        Line::from(vec![
+            Span::styled("  q       ", Style::default().fg(Color::Yellow)),
+            Span::styled("退出程序", Style::default().fg(Color::White)),
+        ]),
+        Line::from(vec![
+            Span::styled("  r       ", Style::default().fg(Color::Yellow)),
+            Span::styled("刷新数据", Style::default().fg(Color::White)),
+        ]),
+        Line::from(vec![
+            Span::styled("  f/Enter ", Style::default().fg(Color::Yellow)),
+            Span::styled("切换全屏K线", Style::default().fg(Color::White)),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  ── 自选股 ──", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        ]),
+        Line::from(vec![
+            Span::styled("  ↑/k ↓/j ", Style::default().fg(Color::Yellow)),
+            Span::styled("选择自选股", Style::default().fg(Color::White)),
+        ]),
+        Line::from(vec![
+            Span::styled("  a       ", Style::default().fg(Color::Yellow)),
+            Span::styled("添加股票", Style::default().fg(Color::White)),
+        ]),
+        Line::from(vec![
+            Span::styled("  d       ", Style::default().fg(Color::Yellow)),
+            Span::styled("删除股票", Style::default().fg(Color::White)),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  ── K线操作 ──", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        ]),
+        Line::from(vec![
+            Span::styled("  ←/h →/l ", Style::default().fg(Color::Yellow)),
+            Span::styled("移动游标", Style::default().fg(Color::White)),
+        ]),
+        Line::from(vec![
+            Span::styled("  PgUp/Dn ", Style::default().fg(Color::Yellow)),
+            Span::styled("滚动K线", Style::default().fg(Color::White)),
+        ]),
+        Line::from(vec![
+            Span::styled("  Esc     ", Style::default().fg(Color::Yellow)),
+            Span::styled("取消游标 / 退出全屏", Style::default().fg(Color::White)),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  ── K线周期 ──", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        ]),
+        Line::from(tf_spans),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("        按 Esc / ? / q 关闭", Style::default().fg(Color::DarkGray)),
+        ]),
+    ];
+
+    let help = Paragraph::new(help_lines)
+        .block(
+            Block::default()
+                .title(" ⌨ 快捷键 ")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Yellow)),
+        )
+        .style(Style::default().bg(Color::Black));
+
+    f.render_widget(help, area);
 }
 
 /// 创建居中矩形

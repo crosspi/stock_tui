@@ -118,6 +118,10 @@ fn main() -> Result<()> {
                             KeyCode::Char('5') => app.set_timeframe(TimeFrame::Daily),
                             KeyCode::Char('6') => app.set_timeframe(TimeFrame::Weekly),
                             KeyCode::Char('7') => app.set_timeframe(TimeFrame::Monthly),
+                            // 帮助页面
+                            KeyCode::Char('?') => {
+                                app.input_mode = InputMode::HelpScreen;
+                            }
                             _ => {}
                         }
                     }
@@ -129,6 +133,41 @@ fn main() -> Result<()> {
                         }
                         KeyCode::Char(c) => {
                             app.input_buffer.push(c);
+                        }
+                        _ => {}
+                    },
+                    InputMode::HelpScreen => match key.code {
+                        KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => {
+                            app.input_mode = InputMode::Normal;
+                        }
+                        // 在帮助页面也可以直接切换周期
+                        KeyCode::Char('1') => {
+                            app.set_timeframe(TimeFrame::Min5);
+                            app.input_mode = InputMode::Normal;
+                        }
+                        KeyCode::Char('2') => {
+                            app.set_timeframe(TimeFrame::Min15);
+                            app.input_mode = InputMode::Normal;
+                        }
+                        KeyCode::Char('3') => {
+                            app.set_timeframe(TimeFrame::Min30);
+                            app.input_mode = InputMode::Normal;
+                        }
+                        KeyCode::Char('4') => {
+                            app.set_timeframe(TimeFrame::Min60);
+                            app.input_mode = InputMode::Normal;
+                        }
+                        KeyCode::Char('5') => {
+                            app.set_timeframe(TimeFrame::Daily);
+                            app.input_mode = InputMode::Normal;
+                        }
+                        KeyCode::Char('6') => {
+                            app.set_timeframe(TimeFrame::Weekly);
+                            app.input_mode = InputMode::Normal;
+                        }
+                        KeyCode::Char('7') => {
+                            app.set_timeframe(TimeFrame::Monthly);
+                            app.input_mode = InputMode::Normal;
                         }
                         _ => {}
                     },

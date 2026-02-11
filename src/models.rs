@@ -168,6 +168,8 @@ pub enum InputMode {
     Normal,
     /// 输入股票代码模式
     AddStock,
+    /// 快捷键帮助页面
+    HelpScreen,
 }
 
 /// 视图模式
