@@ -180,3 +180,57 @@ pub enum ViewMode {
     /// 全屏K线图
     FullscreenChart,
 }
+
+/// 计算移动平均线 (MA)
+/// data: K线数据
+/// window: 窗口大小 (如 5, 10, 20)
+pub fn calculate_ma(data: &[KLineData], window: usize) -> Vec<Option<f64>> {
+    let mut ma = Vec::with_capacity(data.len());
+    let mut sum = 0.0;
+    for i in 0..data.len() {
+        sum += data[i].close_f64();
+        if i >= window {
+            sum -= data[i - window].close_f64();
+        }
+        if i >= window - 1 {
+            ma.push(Some(sum / window as f64));
+        } else {
+            ma.push(None);
+        }
+    }
+    ma
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_calculate_ma() {
+        // Create dummy data
+        let prices = vec![10.0, 20.0, 30.0, 40.0, 50.0];
+        let data: Vec<KLineData> = prices
+            .iter()
+            .map(|&p| KLineData {
+                day: "2023-01-01".to_string(),
+                open: "0.0".to_string(),
+                high: "0.0".to_string(),
+                low: "0.0".to_string(),
+                close: p.to_string(),
+                volume: "0".to_string(),
+            })
+            .collect();
+
+        // MA 3
+        // 10, 20, 30 -> 20
+        // 20, 30, 40 -> 30
+        // 30, 40, 50 -> 40
+        let ma3 = calculate_ma(&data, 3);
+        assert_eq!(ma3.len(), 5);
+        assert_eq!(ma3[0], None);
+        assert_eq!(ma3[1], None);
+        assert_eq!(ma3[2], Some(20.0));
+        assert_eq!(ma3[3], Some(30.0));
+        assert_eq!(ma3[4], Some(40.0));
+    }
+}

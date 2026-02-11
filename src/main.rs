@@ -1,5 +1,6 @@
 mod api;
 mod app;
+mod config;
 mod event;
 mod models;
 mod ui;
@@ -58,9 +59,7 @@ fn main() -> Result<()> {
                             KeyCode::Char('q') => {
                                 app.should_quit = true;
                             }
-                            KeyCode::Char('c')
-                                if key.modifiers.contains(KeyModifiers::CONTROL) =>
-                            {
+                            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                                 app.should_quit = true;
                             }
                             // Esc: 全屏模式退出全屏 / 有游标则取消游标 / 否则退出程序

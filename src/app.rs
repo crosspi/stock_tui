@@ -1,4 +1,5 @@
 use crate::api;
+use crate::config::Config;
 use crate::models::*;
 
 /// 应用主状态
@@ -33,16 +34,15 @@ pub struct App {
 
 impl App {
     pub fn new() -> Self {
-        let default_stocks = vec![
-            "sh600519".to_string(), // 贵州茅台
-            "sz000858".to_string(), // 五粮液
-            "sh601318".to_string(), // 中国平安
-        ];
-        let quotes = vec![None; default_stocks.len()];
+        // Load config from file
+        let config = Config::load();
+        let watchlist = config.watchlist;
+
+        let quotes = vec![None; watchlist.len()];
 
         let mut app = Self {
             should_quit: false,
-            watchlist: default_stocks,
+            watchlist,
             selected_index: 0,
             quotes,
             kline_data: Vec::new(),
@@ -69,6 +69,11 @@ impl App {
 
     /// 刷新所有股票的实时行情
     pub fn refresh_quotes(&mut self) {
+        if self.watchlist.is_empty() {
+            self.quotes.clear();
+            return;
+        }
+
         let results = api::fetch_multiple_quotes(&self.watchlist);
         self.quotes = results
             .into_iter()
@@ -83,10 +88,8 @@ impl App {
 
         // 更新状态消息
         if let Some(Some(q)) = self.quotes.get(self.selected_index) {
-            self.status_message = format!(
-                "{} {} 最后更新: {} {}",
-                q.symbol, q.name, q.date, q.time
-            );
+            self.status_message =
+                format!("{} {} 最后更新: {} {}", q.symbol, q.name, q.date, q.time);
         }
     }
 
@@ -104,6 +107,8 @@ impl App {
                     self.kline_data.clear();
                 }
             }
+        } else {
+            self.kline_data.clear();
         }
     }
 
@@ -229,7 +234,8 @@ impl App {
     pub fn start_add_stock(&mut self) {
         self.input_mode = InputMode::AddStock;
         self.input_buffer.clear();
-        self.status_message = "输入股票代码 (如 sh600519 或 sz000858)，按 Enter 确认，Esc 取消".to_string();
+        self.status_message =
+            "输入股票代码 (如 sh600519 或 sz000858)，按 Enter 确认，Esc 取消".to_string();
     }
 
     /// 确认添加股票
@@ -264,9 +270,12 @@ impl App {
                 self.status_message = format!("已添加: {} {}", q.symbol, q.name);
                 let idx = self.quotes.len() - 1;
                 self.quotes[idx] = Some(q);
+                self.save_config();
             }
             Err(e) => {
                 self.status_message = format!("添加成功但获取行情失败: {}", e);
+                // 即使行情获取失败也保存，因为已经添加到watchlist了
+                self.save_config();
             }
         }
 
@@ -294,6 +303,16 @@ impl App {
         if self.selected_index >= self.watchlist.len() {
             self.selected_index = self.watchlist.len() - 1;
         }
+        self.save_config();
         self.refresh_kline();
+    }
+
+    fn save_config(&mut self) {
+        let config = Config {
+            watchlist: self.watchlist.clone(),
+        };
+        if let Err(e) = config.save() {
+            self.status_message = format!("配置保存失败: {}", e);
+        }
     }
 }

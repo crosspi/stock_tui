@@ -4,8 +4,8 @@ use ratatui::{
     symbols,
     text::{Line, Span},
     widgets::{
-        Block, Borders, canvas::{Canvas, Context as CanvasContext},
-        Clear, List, ListItem, Paragraph,
+        canvas::{Canvas, Context as CanvasContext, Line as CanvasLine},
+        Block, Borders, Clear, List, ListItem, Paragraph,
     },
     Frame,
 };
@@ -21,6 +21,11 @@ const COLOR_DOWN: Color = Color::Green;
 const COLOR_FLAT: Color = Color::White;
 /// 游标颜色
 const COLOR_CURSOR: Color = Color::Yellow;
+
+/// 均线颜色
+const COLOR_MA5: Color = Color::White;
+const COLOR_MA10: Color = Color::Yellow;
+const COLOR_MA20: Color = Color::Magenta;
 
 /// 主渲染函数
 pub fn draw(f: &mut Frame, app: &App) {
@@ -45,7 +50,7 @@ fn draw_normal_layout(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(5),  // 行情概览
+            Constraint::Length(5), // 行情概览
             Constraint::Min(12),   // K线图
             Constraint::Length(8), // 自选股列表
             Constraint::Length(1), // 状态栏
@@ -63,7 +68,7 @@ fn draw_fullscreen_chart(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // 精简行情信息
+            Constraint::Length(3), // 精简行情信息
             Constraint::Min(10),   // K线图（占满）
             Constraint::Length(1), // 状态栏
         ])
@@ -96,9 +101,14 @@ fn draw_compact_quote(f: &mut Frame, app: &App, area: Rect) {
         let line = Line::from(vec![
             Span::styled(
                 format!(" {} ", quote.name),
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(format!("[{}]", quote.symbol), Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                format!("[{}]", quote.symbol),
+                Style::default().fg(Color::DarkGray),
+            ),
             Span::raw("  "),
             Span::styled(
                 format!("{:.2}", quote.current),
@@ -111,7 +121,12 @@ fn draw_compact_quote(f: &mut Frame, app: &App, area: Rect) {
             ),
             Span::raw("    "),
             Span::styled(
-                format!("高:{:.2} 低:{:.2} 量:{}", quote.high, quote.low, quote.volume_display()),
+                format!(
+                    "高:{:.2} 低:{:.2} 量:{}",
+                    quote.high,
+                    quote.low,
+                    quote.volume_display()
+                ),
                 Style::default().fg(Color::DarkGray),
             ),
         ]);
@@ -197,7 +212,10 @@ fn draw_quote_info(f: &mut Frame, app: &App, area: Rect) {
             ]),
             Line::from(vec![
                 Span::styled(" 开盘: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(format!("{:.2}", quote.open), Style::default().fg(Color::White)),
+                Span::styled(
+                    format!("{:.2}", quote.open),
+                    Style::default().fg(Color::White),
+                ),
                 Span::raw("  "),
                 Span::styled("最高: ", Style::default().fg(Color::DarkGray)),
                 Span::styled(format!("{:.2}", quote.high), Style::default().fg(COLOR_UP)),
@@ -206,7 +224,10 @@ fn draw_quote_info(f: &mut Frame, app: &App, area: Rect) {
                 Span::styled(format!("{:.2}", quote.low), Style::default().fg(COLOR_DOWN)),
                 Span::raw("  "),
                 Span::styled("昨收: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(format!("{:.2}", quote.pre_close), Style::default().fg(Color::White)),
+                Span::styled(
+                    format!("{:.2}", quote.pre_close),
+                    Style::default().fg(Color::White),
+                ),
             ]),
             Line::from(vec![
                 Span::styled(" 成交量: ", Style::default().fg(Color::DarkGray)),
@@ -232,7 +253,7 @@ fn draw_quote_info(f: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-/// 绘制K线蜡烛图（带游标支持 + 坐标轴）
+/// 绘制K线蜡烛图（带游标支持 + 坐标轴 + 均线）
 fn draw_kline_chart(f: &mut Frame, app: &App, area: Rect) {
     let title = if app.kline_cursor.is_some() {
         format!(" K线图 - {} [游标模式] ", app.timeframe.label())
@@ -294,6 +315,11 @@ fn draw_kline_chart(f: &mut Frame, app: &App, area: Rect) {
         height: date_axis_height,
     };
 
+    // 计算均线数据 (全局计算)
+    let ma5 = calculate_ma(&app.kline_data, 5);
+    let ma10 = calculate_ma(&app.kline_data, 10);
+    let ma20 = calculate_ma(&app.kline_data, 20);
+
     // 计算可显示的K线数量（每根蜡烛占3列宽度）
     let candle_width = 3usize;
     let visible_count = (chart_width as usize / candle_width).min(app.kline_data.len());
@@ -311,12 +337,27 @@ fn draw_kline_chart(f: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    // 计算价格范围
+    // 计算价格范围 (包含K线和均线)
     let mut min_price = f64::MAX;
     let mut max_price = f64::MIN;
-    for k in visible_data {
+    for (i, k) in visible_data.iter().enumerate() {
         min_price = min_price.min(k.low_f64());
         max_price = max_price.max(k.high_f64());
+
+        // 考虑均线范围
+        let global_idx = start_idx + i;
+        if let Some(v) = ma5.get(global_idx).and_then(|&v| v) {
+            min_price = min_price.min(v);
+            max_price = max_price.max(v);
+        }
+        if let Some(v) = ma10.get(global_idx).and_then(|&v| v) {
+            min_price = min_price.min(v);
+            max_price = max_price.max(v);
+        }
+        if let Some(v) = ma20.get(global_idx).and_then(|&v| v) {
+            min_price = min_price.min(v);
+            max_price = max_price.max(v);
+        }
     }
 
     let price_range = max_price - min_price;
@@ -336,30 +377,76 @@ fn draw_kline_chart(f: &mut Frame, app: &App, area: Rect) {
         }
     }
 
-    // ── 绘制K线蜡烛图 + 网格线 ──
+    // ── 绘制K线蜡烛图 + 网格线 + 均线 ──
     let canvas_w = (visible_data.len() * candle_width) as f64;
     let cursor_pos = app.kline_cursor;
     let grid_prices_clone = grid_prices.clone();
 
+    // Clone MA data for closure (efficient enough for TUI)
+    // Actually we can move them if we don't need them outside.
+    // We need them for cursor info later, so let's use a reference or clone needed parts?
+    // Rust closures and borrowing... we can't easily capture slices if they reference `app`.
+    // But `ma5` is a local Vec, so we can clone it.
+    let ma5_clone = ma5.clone();
+    let ma10_clone = ma10.clone();
+    let ma20_clone = ma20.clone();
+
     let canvas = Canvas::default()
         .x_bounds([0.0, canvas_w])
         .y_bounds([min_price, max_price])
-        .marker(symbols::Marker::Block)
+        .marker(symbols::Marker::Braille)
         .paint(move |ctx: &mut CanvasContext| {
-            // 先绘制网格线（在蜡烛后面）
+            // 先绘制网格线（最底层）
             for &gp in &grid_prices_clone {
                 let grid_steps = (canvas_w as usize) / 2;
                 for gs in 0..grid_steps {
                     let gx = (gs * 2) as f64 + 0.5;
-                    ctx.print(gx, gp, ratatui::text::Line::from(
-                        Span::styled("┈", Style::default().fg(Color::Indexed(236)))
-                    ));
+                    ctx.print(
+                        gx,
+                        gp,
+                        ratatui::text::Line::from(Span::styled(
+                            "┈",
+                            Style::default().fg(Color::Indexed(236)),
+                        )),
+                    );
+                }
+            }
+
+            // 绘制均线 (Line chart)
+            // Draw lines between adjacent points
+            for i in 1..visible_data.len() {
+                let x_prev = ((i - 1) * candle_width) as f64 + 1.0;
+                let x_curr = (i * candle_width) as f64 + 1.0;
+                let global_prev = start_idx + i - 1;
+                let global_curr = start_idx + i;
+
+                if let (Some(prev), Some(curr)) = (
+                    ma5_clone.get(global_prev).and_then(|&v| v),
+                    ma5_clone.get(global_curr).and_then(|&v| v),
+                ) {
+                    ctx.draw(&CanvasLine::new(x_prev, prev, x_curr, curr, COLOR_MA5));
+                }
+                if let (Some(prev), Some(curr)) = (
+                    ma10_clone.get(global_prev).and_then(|&v| v),
+                    ma10_clone.get(global_curr).and_then(|&v| v),
+                ) {
+                    ctx.draw(&CanvasLine::new(x_prev, prev, x_curr, curr, COLOR_MA10));
+                }
+                if let (Some(prev), Some(curr)) = (
+                    ma20_clone.get(global_prev).and_then(|&v| v),
+                    ma20_clone.get(global_curr).and_then(|&v| v),
+                ) {
+                    ctx.draw(&CanvasLine::new(x_prev, prev, x_curr, curr, COLOR_MA20));
                 }
             }
 
             // 绘制蜡烛（逐行连续绘制，避免断裂）
             let inner_h = chart_area.height as f64;
-            let row_step = if inner_h > 0.0 { final_range / inner_h } else { 1.0 };
+            let row_step = if inner_h > 0.0 {
+                final_range / inner_h
+            } else {
+                1.0
+            };
 
             for (i, kline) in visible_data.iter().enumerate() {
                 let x = (i * candle_width) as f64 + 1.0;
@@ -378,33 +465,56 @@ fn draw_kline_chart(f: &mut Frame, app: &App, area: Rect) {
 
                 if row_step <= 0.0 || final_range <= 0.0 {
                     // 无法计算步长，画一个点
-                    ctx.print(x, close, ratatui::text::Line::from(
-                        Span::styled("─", Style::default().fg(color))
-                    ));
+                    ctx.print(
+                        x,
+                        close,
+                        ratatui::text::Line::from(Span::styled("─", Style::default().fg(color))),
+                    );
                     continue;
                 }
 
-                // 从 low 到 high 逐行绘制，保证连续不断裂
+                // 从 low 到 high 逐行绘制
                 let mut y = low;
                 while y <= high + row_step * 0.5 {
-                    let ch = if y >= body_bottom - row_step * 0.5 && y <= body_top + row_step * 0.5 {
+                    let ch = if y >= body_bottom - row_step * 0.5 && y <= body_top + row_step * 0.5
+                    {
                         body_char
                     } else {
                         "│"
                     };
-                    ctx.print(x, y, ratatui::text::Line::from(
-                        Span::styled(ch, Style::default().fg(color))
-                    ));
+                    ctx.print(
+                        x,
+                        y,
+                        ratatui::text::Line::from(Span::styled(ch, Style::default().fg(color))),
+                    );
                     y += row_step;
                 }
 
-                // 确保端点也被绘制
-                ctx.print(x, low, ratatui::text::Line::from(
-                    Span::styled(if low >= body_bottom - row_step * 0.5 { body_char } else { "│" }, Style::default().fg(color))
-                ));
-                ctx.print(x, high, ratatui::text::Line::from(
-                    Span::styled(if high <= body_top + row_step * 0.5 { body_char } else { "│" }, Style::default().fg(color))
-                ));
+                // 补充端点
+                ctx.print(
+                    x,
+                    low,
+                    ratatui::text::Line::from(Span::styled(
+                        if low >= body_bottom - row_step * 0.5 {
+                            body_char
+                        } else {
+                            "│"
+                        },
+                        Style::default().fg(color),
+                    )),
+                );
+                ctx.print(
+                    x,
+                    high,
+                    ratatui::text::Line::from(Span::styled(
+                        if high <= body_top + row_step * 0.5 {
+                            body_char
+                        } else {
+                            "│"
+                        },
+                        Style::default().fg(color),
+                    )),
+                );
             }
         });
 
@@ -421,10 +531,7 @@ fn draw_kline_chart(f: &mut Frame, app: &App, area: Rect) {
                 Style::default().fg(Color::DarkGray),
             )));
         } else {
-            price_lines.push(Line::from(Span::styled(
-                "          ",
-                Style::default(),
-            )));
+            price_lines.push(Line::from(Span::styled("          ", Style::default())));
         }
     }
     let price_axis = Paragraph::new(price_lines);
@@ -462,21 +569,72 @@ fn draw_kline_chart(f: &mut Frame, app: &App, area: Rect) {
     // ── 绘制游标信息覆盖层 ──
     if let Some(cursor_idx) = app.kline_cursor {
         if let Some(kline) = visible_data.get(cursor_idx) {
-            let color = if kline.close_f64() >= kline.open_f64() { COLOR_UP } else { COLOR_DOWN };
-            let info_line = Line::from(vec![
+            let color = if kline.close_f64() >= kline.open_f64() {
+                COLOR_UP
+            } else {
+                COLOR_DOWN
+            };
+
+            // 获取当前游标位置的均线值
+            let global_idx = start_idx + cursor_idx;
+            let ma5_val = ma5.get(global_idx).and_then(|v| *v);
+            let ma10_val = ma10.get(global_idx).and_then(|v| *v);
+            let ma20_val = ma20.get(global_idx).and_then(|v| *v);
+
+            let mut info_spans = vec![
                 Span::styled(" ▸ ", Style::default().fg(COLOR_CURSOR)),
-                Span::styled(format!("{} ", kline.day), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    format!("{} ", kline.day),
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled("开:", Style::default().fg(Color::DarkGray)),
-                Span::styled(format!("{} ", kline.open), Style::default().fg(color)),
+                Span::styled(
+                    format!("{:.2} ", kline.open_f64()),
+                    Style::default().fg(color),
+                ),
                 Span::styled("高:", Style::default().fg(Color::DarkGray)),
-                Span::styled(format!("{} ", kline.high), Style::default().fg(COLOR_UP)),
+                Span::styled(
+                    format!("{:.2} ", kline.high_f64()),
+                    Style::default().fg(COLOR_UP),
+                ),
                 Span::styled("低:", Style::default().fg(Color::DarkGray)),
-                Span::styled(format!("{} ", kline.low), Style::default().fg(COLOR_DOWN)),
+                Span::styled(
+                    format!("{:.2} ", kline.low_f64()),
+                    Style::default().fg(COLOR_DOWN),
+                ),
                 Span::styled("收:", Style::default().fg(Color::DarkGray)),
-                Span::styled(format!("{} ", kline.close), Style::default().fg(color)),
-                Span::styled("量:", Style::default().fg(Color::DarkGray)),
-                Span::styled(&kline.volume, Style::default().fg(Color::Cyan)),
-            ]);
+                Span::styled(
+                    format!("{:.2} ", kline.close_f64()),
+                    Style::default().fg(color),
+                ),
+            ];
+
+            // 添加均线信息
+            if let Some(v) = ma5_val {
+                info_spans.push(Span::styled("MA5:", Style::default().fg(COLOR_MA5)));
+                info_spans.push(Span::styled(
+                    format!("{:.2} ", v),
+                    Style::default().fg(COLOR_MA5),
+                ));
+            }
+            if let Some(v) = ma10_val {
+                info_spans.push(Span::styled("MA10:", Style::default().fg(COLOR_MA10)));
+                info_spans.push(Span::styled(
+                    format!("{:.2} ", v),
+                    Style::default().fg(COLOR_MA10),
+                ));
+            }
+            if let Some(v) = ma20_val {
+                info_spans.push(Span::styled("MA20:", Style::default().fg(COLOR_MA20)));
+                info_spans.push(Span::styled(
+                    format!("{:.2} ", v),
+                    Style::default().fg(COLOR_MA20),
+                ));
+            }
+
+            let info_line = Line::from(info_spans);
 
             let overlay_area = Rect {
                 x: chart_area.x,
@@ -484,14 +642,11 @@ fn draw_kline_chart(f: &mut Frame, app: &App, area: Rect) {
                 width: chart_area.width,
                 height: 1,
             };
-            let overlay = Paragraph::new(info_line)
-                .style(Style::default().bg(Color::Black));
+            let overlay = Paragraph::new(info_line).style(Style::default().bg(Color::Black));
             f.render_widget(overlay, overlay_area);
         }
     }
 }
-
-
 
 /// 绘制自选股列表
 fn draw_watchlist(f: &mut Frame, app: &App, area: Rect) {
@@ -527,29 +682,18 @@ fn draw_watchlist(f: &mut Frame, app: &App, area: Rect) {
                 )
             };
 
-            let prefix = if i == app.selected_index { "▶ " } else { "  " };
+            let prefix = if i == app.selected_index {
+                "▶ "
+            } else {
+                "  "
+            };
 
             let line = Line::from(vec![
-                Span::styled(
-                    prefix,
-                    Style::default().fg(Color::Yellow),
-                ),
-                Span::styled(
-                    format!("{:<10} ", symbol),
-                    Style::default().fg(Color::Cyan),
-                ),
-                Span::styled(
-                    format!("{:<8} ", name),
-                    Style::default().fg(Color::White),
-                ),
-                Span::styled(
-                    format!("{:>10} ", price),
-                    Style::default().fg(color),
-                ),
-                Span::styled(
-                    format!("{:>8}", change_str),
-                    Style::default().fg(color),
-                ),
+                Span::styled(prefix, Style::default().fg(Color::Yellow)),
+                Span::styled(format!("{:<10} ", symbol), Style::default().fg(Color::Cyan)),
+                Span::styled(format!("{:<8} ", name), Style::default().fg(Color::White)),
+                Span::styled(format!("{:>10} ", price), Style::default().fg(color)),
+                Span::styled(format!("{:>8}", change_str), Style::default().fg(color)),
             ]);
 
             ListItem::new(line)
@@ -611,13 +755,13 @@ fn draw_help_popup(f: &mut Frame, app: &App) {
     f.render_widget(Clear, area);
 
     let timeframes = [
-        ("1", "5分钟",  TimeFrame::Min5),
+        ("1", "5分钟", TimeFrame::Min5),
         ("2", "15分钟", TimeFrame::Min15),
         ("3", "30分钟", TimeFrame::Min30),
         ("4", "60分钟", TimeFrame::Min60),
-        ("5", "日K",    TimeFrame::Daily),
-        ("6", "周K",    TimeFrame::Weekly),
-        ("7", "月K",    TimeFrame::Monthly),
+        ("5", "日K", TimeFrame::Daily),
+        ("6", "周K", TimeFrame::Weekly),
+        ("7", "月K", TimeFrame::Monthly),
     ];
 
     // 构建周期行
@@ -626,10 +770,14 @@ fn draw_help_popup(f: &mut Frame, app: &App) {
         let is_active = app.timeframe == *tf;
         tf_spans.push(Span::styled(
             format!(" {} ", key),
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
         ));
         let style = if is_active {
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::White)
         };
@@ -641,9 +789,12 @@ fn draw_help_popup(f: &mut Frame, app: &App) {
 
     let help_lines = vec![
         Line::from(""),
-        Line::from(vec![
-            Span::styled("  ── 基本操作 ──", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        ]),
+        Line::from(vec![Span::styled(
+            "  ── 基本操作 ──",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )]),
         Line::from(vec![
             Span::styled("  q       ", Style::default().fg(Color::Yellow)),
             Span::styled("退出程序", Style::default().fg(Color::White)),
@@ -657,9 +808,12 @@ fn draw_help_popup(f: &mut Frame, app: &App) {
             Span::styled("切换全屏K线", Style::default().fg(Color::White)),
         ]),
         Line::from(""),
-        Line::from(vec![
-            Span::styled("  ── 自选股 ──", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        ]),
+        Line::from(vec![Span::styled(
+            "  ── 自选股 ──",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )]),
         Line::from(vec![
             Span::styled("  ↑/k ↓/j ", Style::default().fg(Color::Yellow)),
             Span::styled("选择自选股", Style::default().fg(Color::White)),
@@ -673,9 +827,12 @@ fn draw_help_popup(f: &mut Frame, app: &App) {
             Span::styled("删除股票", Style::default().fg(Color::White)),
         ]),
         Line::from(""),
-        Line::from(vec![
-            Span::styled("  ── K线操作 ──", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        ]),
+        Line::from(vec![Span::styled(
+            "  ── K线操作 ──",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )]),
         Line::from(vec![
             Span::styled("  ←/h →/l ", Style::default().fg(Color::Yellow)),
             Span::styled("移动游标", Style::default().fg(Color::White)),
@@ -689,14 +846,18 @@ fn draw_help_popup(f: &mut Frame, app: &App) {
             Span::styled("取消游标 / 退出全屏", Style::default().fg(Color::White)),
         ]),
         Line::from(""),
-        Line::from(vec![
-            Span::styled("  ── K线周期 ──", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        ]),
+        Line::from(vec![Span::styled(
+            "  ── K线周期 ──",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )]),
         Line::from(tf_spans),
         Line::from(""),
-        Line::from(vec![
-            Span::styled("        按 Esc / ? / q 关闭", Style::default().fg(Color::DarkGray)),
-        ]),
+        Line::from(vec![Span::styled(
+            "        按 Esc / ? / q 关闭",
+            Style::default().fg(Color::DarkGray),
+        )]),
     ];
 
     let help = Paragraph::new(help_lines)
