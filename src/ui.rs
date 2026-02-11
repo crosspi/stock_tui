@@ -741,7 +741,7 @@ fn draw_input_popup(f: &mut Frame, app: &App) {
     ]))
     .block(
         Block::default()
-            .title(" 添加股票 (输入代码如 sh600519) ")
+            .title(" 添加股票 (sh/sz/hk/gb_...) ")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Yellow)),
     );

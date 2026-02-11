@@ -234,22 +234,32 @@ impl App {
     pub fn start_add_stock(&mut self) {
         self.input_mode = InputMode::AddStock;
         self.input_buffer.clear();
-        self.status_message =
-            "输入股票代码 (如 sh600519 或 sz000858)，按 Enter 确认，Esc 取消".to_string();
+        self.status_message = "输入代码 (sh600519/hk00700/gb_aapl)，Enter确认，Esc取消".to_string();
     }
 
     /// 确认添加股票
     pub fn confirm_add_stock(&mut self) {
-        let symbol = self.input_buffer.trim().to_lowercase();
+        let mut symbol = self.input_buffer.trim().to_lowercase();
         if symbol.is_empty() {
             self.status_message = "股票代码不能为空".to_string();
             self.input_mode = InputMode::Normal;
             return;
         }
 
-        // 检查格式
-        if !symbol.starts_with("sh") && !symbol.starts_with("sz") {
-            self.status_message = "股票代码格式错误，需以 sh 或 sz 开头".to_string();
+        // 处理美股 us 前缀转 gb_
+        if symbol.starts_with("us") {
+            symbol = symbol.replacen("us", "gb_", 1);
+        }
+
+        // 检查格式: sh, sz, bj, hk, gb_
+        if !symbol.starts_with("sh")
+            && !symbol.starts_with("sz")
+            && !symbol.starts_with("bj")
+            && !symbol.starts_with("hk")
+            && !symbol.starts_with("gb_")
+        {
+            self.status_message =
+                "格式错误，支持前缀: sh/sz/bj(A股/北交), hk(港股), gb_/us(美股)".to_string();
             self.input_mode = InputMode::Normal;
             return;
         }
