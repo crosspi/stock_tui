@@ -164,9 +164,9 @@ fn fetch_us_kline(symbol: &str, _scale: u32, _datalen: u32) -> Result<Vec<KLineD
     let text = resp.text().context("读取美股K线数据失败")?;
 
     // 解析 JSONP: IO({...}) 或 IO([...])
-    let json_str = text
+    let start_idx = text.find("IO(").context("解析美股K线失败: 未找到 IO(")? + 3;
+    let json_str = text[start_idx..]
         .trim()
-        .trim_start_matches("IO(")
         .trim_end_matches(");")
         .trim_end_matches(")"); // 容错
 

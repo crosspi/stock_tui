@@ -5,7 +5,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{
         canvas::{Canvas, Context as CanvasContext, Line as CanvasLine},
-        Block, Borders, Clear, List, ListItem, Paragraph,
+        Block, Borders, Cell, Clear, List, ListItem, Paragraph, Row, Table,
     },
     Frame,
 };
@@ -28,7 +28,7 @@ const COLOR_MA10: Color = Color::Yellow;
 const COLOR_MA20: Color = Color::Magenta;
 
 /// 主渲染函数
-pub fn draw(f: &mut Frame, app: &App) {
+pub fn draw(f: &mut Frame, app: &mut App) {
     match app.view_mode {
         ViewMode::Normal => draw_normal_layout(f, app),
         ViewMode::FullscreenChart => draw_fullscreen_chart(f, app),
@@ -46,21 +46,19 @@ pub fn draw(f: &mut Frame, app: &App) {
 }
 
 /// 正常布局
-fn draw_normal_layout(f: &mut Frame, app: &App) {
+fn draw_normal_layout(f: &mut Frame, app: &mut App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(5), // 行情概览
-            Constraint::Min(12),   // K线图
-            Constraint::Length(8), // 自选股列表
-            Constraint::Length(1), // 状态栏
+            Constraint::Min(10),    // K线图
+            Constraint::Min(12),    // 自选股列表（含行情信息）
+            Constraint::Length(1),  // 状态栏
         ])
         .split(f.area());
 
-    draw_quote_info(f, app, chunks[0]);
-    draw_kline_chart(f, app, chunks[1]);
-    draw_watchlist(f, app, chunks[2]);
-    draw_status_bar(f, app, chunks[3]);
+    draw_kline_chart(f, app, chunks[0]);
+    draw_watchlist(f, app, chunks[1]);
+    draw_status_bar(f, app, chunks[2]);
 }
 
 /// 全屏K线图布局
@@ -68,24 +66,20 @@ fn draw_fullscreen_chart(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // 精简行情信息
             Constraint::Min(10),   // K线图（占满）
-            Constraint::Length(1), // 状态栏
+            Constraint::Length(1), // 状态栏（含行情摘要）
         ])
         .split(f.area());
 
-    // 精简行情头部
-    draw_compact_quote(f, app, chunks[0]);
-    draw_kline_chart(f, app, chunks[1]);
-    draw_fullscreen_status(f, app, chunks[2]);
+    draw_kline_chart(f, app, chunks[0]);
+    draw_fullscreen_status(f, app, chunks[1]);
 }
 
-/// 精简行情信息（全屏模式用）
-fn draw_compact_quote(f: &mut Frame, app: &App, area: Rect) {
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan));
+/// 全屏模式状态栏（含行情摘要）
+fn draw_fullscreen_status(f: &mut Frame, app: &App, area: Rect) {
+    let mut spans = Vec::new();
 
+    // 行情摘要信息
     if let Some(quote) = app.current_quote() {
         let change = quote.change();
         let change_pct = quote.change_percent();
@@ -98,159 +92,33 @@ fn draw_compact_quote(f: &mut Frame, app: &App, area: Rect) {
         };
         let sign = if change > 0.0 { "+" } else { "" };
 
-        let line = Line::from(vec![
-            Span::styled(
-                format!(" {} ", quote.name),
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!("[{}]", quote.symbol),
-                Style::default().fg(Color::DarkGray),
-            ),
-            Span::raw("  "),
-            Span::styled(
-                format!("{:.2}", quote.current),
-                Style::default().fg(color).add_modifier(Modifier::BOLD),
-            ),
-            Span::raw("  "),
-            Span::styled(
-                format!("{}{:.2} ({}{:.2}%)", sign, change, sign, change_pct),
-                Style::default().fg(color),
-            ),
-            Span::raw("    "),
-            Span::styled(
-                format!(
-                    "高:{:.2} 低:{:.2} 量:{}",
-                    quote.high,
-                    quote.low,
-                    quote.volume_display()
-                ),
-                Style::default().fg(Color::DarkGray),
-            ),
-        ]);
-        let p = Paragraph::new(line).block(block);
-        f.render_widget(p, area);
-    } else {
-        f.render_widget(Paragraph::new(" 加载中...").block(block), area);
-    }
-}
-
-/// 全屏模式状态栏
-fn draw_fullscreen_status(f: &mut Frame, app: &App, area: Rect) {
-    let mut spans = vec![
-        Span::styled(" ?", Style::default().fg(Color::Yellow)),
-        Span::styled(" 快捷键", Style::default().fg(Color::DarkGray)),
-    ];
-
-    // 显示当前周期
-    spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
-    spans.push(Span::styled(
-        app.timeframe.label(),
-        Style::default().fg(Color::Cyan),
-    ));
-
-    // 如果有游标数据，显示在状态栏
-    if let Some(kline) = app.cursor_kline(area.width as usize) {
-        spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+        spans.push(Span::styled(
+            format!(" {} ", quote.name),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ));
+        spans.push(Span::styled(
+            format!("{:.2}", quote.current),
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        ));
+        spans.push(Span::styled(
+            format!(" {}{:.2}({}{:.2}%)", sign, change, sign, change_pct),
+            Style::default().fg(color),
+        ));
         spans.push(Span::styled(
             format!(
-                "{} 开:{} 高:{} 低:{} 收:{} 量:{}",
-                kline.day, kline.open, kline.high, kline.low, kline.close, kline.volume
+                " 高:{:.2} 低:{:.2} 量:{}",
+                quote.high, quote.low, quote.volume_display()
             ),
-            Style::default().fg(Color::White),
+            Style::default().fg(Color::DarkGray),
         ));
+    } else {
+        spans.push(Span::styled(" 加载中...", Style::default().fg(Color::DarkGray)));
     }
 
     let p = Paragraph::new(Line::from(spans));
     f.render_widget(p, area);
-}
-
-/// 绘制行情概览
-fn draw_quote_info(f: &mut Frame, app: &App, area: Rect) {
-    let block = Block::default()
-        .title(" 📈 股票行情 ")
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan));
-
-    if let Some(quote) = app.current_quote() {
-        let change = quote.change();
-        let change_pct = quote.change_percent();
-        let color = if change > 0.0 {
-            COLOR_UP
-        } else if change < 0.0 {
-            COLOR_DOWN
-        } else {
-            COLOR_FLAT
-        };
-
-        let sign = if change > 0.0 { "+" } else { "" };
-
-        let lines = vec![
-            Line::from(vec![
-                Span::styled(
-                    format!(" {} ", quote.name),
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    format!("[{}]", quote.symbol),
-                    Style::default().fg(Color::DarkGray),
-                ),
-                Span::raw("  "),
-                Span::styled(
-                    format!("{:.2}", quote.current),
-                    Style::default().fg(color).add_modifier(Modifier::BOLD),
-                ),
-                Span::raw("  "),
-                Span::styled(
-                    format!("{}{:.2} ({}{:.2}%)", sign, change, sign, change_pct),
-                    Style::default().fg(color),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled(" 开盘: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(
-                    format!("{:.2}", quote.open),
-                    Style::default().fg(Color::White),
-                ),
-                Span::raw("  "),
-                Span::styled("最高: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(format!("{:.2}", quote.high), Style::default().fg(COLOR_UP)),
-                Span::raw("  "),
-                Span::styled("最低: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(format!("{:.2}", quote.low), Style::default().fg(COLOR_DOWN)),
-                Span::raw("  "),
-                Span::styled("昨收: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(
-                    format!("{:.2}", quote.pre_close),
-                    Style::default().fg(Color::White),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled(" 成交量: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(quote.volume_display(), Style::default().fg(Color::Cyan)),
-                Span::raw("  "),
-                Span::styled("成交额: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(quote.turnover_display(), Style::default().fg(Color::Cyan)),
-                Span::raw("  "),
-                Span::styled(
-                    format!("{} {}", quote.date, quote.time),
-                    Style::default().fg(Color::DarkGray),
-                ),
-            ]),
-        ];
-
-        let paragraph = Paragraph::new(lines).block(block);
-        f.render_widget(paragraph, area);
-    } else {
-        let paragraph = Paragraph::new(" 加载中...")
-            .block(block)
-            .style(Style::default().fg(Color::DarkGray));
-        f.render_widget(paragraph, area);
-    }
 }
 
 /// 绘制K线蜡烛图（带游标支持 + 坐标轴 + 均线）
@@ -648,66 +516,114 @@ fn draw_kline_chart(f: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-/// 绘制自选股列表
-fn draw_watchlist(f: &mut Frame, app: &App, area: Rect) {
-    let items: Vec<ListItem> = app
+/// 绘制自选股列表（含行情概览信息）
+fn draw_watchlist(f: &mut Frame, app: &mut App, area: Rect) {
+    let header = Row::new(vec![
+        Cell::from("  代码").style(Style::default().fg(Color::Cyan)),
+        Cell::from("名称").style(Style::default().fg(Color::White)),
+        Cell::from("当前价").style(Style::default().fg(Color::Yellow)),
+        Cell::from("涨跌额").style(Style::default().fg(Color::Yellow)),
+        Cell::from("涨跌幅").style(Style::default().fg(Color::Yellow)),
+        Cell::from("今开").style(Style::default().fg(Color::DarkGray)),
+        Cell::from("最高").style(Style::default().fg(COLOR_UP)),
+        Cell::from("最低").style(Style::default().fg(COLOR_DOWN)),
+        Cell::from("昨收").style(Style::default().fg(Color::DarkGray)),
+        Cell::from("成交量").style(Style::default().fg(Color::DarkGray)),
+    ])
+    .style(
+        Style::default()
+            .add_modifier(Modifier::BOLD),
+    )
+    .bottom_margin(0);
+
+    let rows: Vec<Row> = app
         .watchlist
         .iter()
         .enumerate()
         .map(|(i, symbol)| {
             let quote = app.quotes.get(i).and_then(|q| q.as_ref());
 
-            let (name, price, change_str, color) = if let Some(q) = quote {
+            if let Some(q) = quote {
+                let change = q.change();
                 let change_pct = q.change_percent();
-                let sign = if change_pct > 0.0 { "+" } else { "" };
-                let color = if change_pct > 0.0 {
+                let sign = if change > 0.0 { "+" } else { "" };
+                let change_color = if change > 0.0 {
                     COLOR_UP
-                } else if change_pct < 0.0 {
+                } else if change < 0.0 {
                     COLOR_DOWN
                 } else {
                     COLOR_FLAT
                 };
-                (
-                    q.name.clone(),
-                    format!("{:.2}", q.current),
-                    format!("{}{:.2}%", sign, change_pct),
-                    color,
-                )
+
+                // 今开 vs 昨收 的颜色
+                let open_color = if q.open > q.pre_close {
+                    COLOR_UP
+                } else if q.open < q.pre_close {
+                    COLOR_DOWN
+                } else {
+                    COLOR_FLAT
+                };
+
+                let is_active = i == app.active_index;
+                let mut style = Style::default();
+                if is_active {
+                    style = style.add_modifier(Modifier::UNDERLINED);
+                }
+
+                Row::new(vec![
+                    Cell::from(format!("  {}", symbol)).style(Style::default().fg(Color::Cyan)),
+                    Cell::from(q.name.clone()).style(Style::default().fg(Color::White)),
+                    Cell::from(format!("{:>8.2}", q.current)).style(Style::default().fg(change_color)),
+                    Cell::from(format!("{:>8}", format!("{}{:.2}", sign, change))).style(Style::default().fg(change_color)),
+                    Cell::from(format!("{:>8}", format!("{}{:.2}%", sign, change_pct))).style(Style::default().fg(change_color)),
+                    Cell::from(format!("{:>8.2}", q.open)).style(Style::default().fg(open_color)),
+                    Cell::from(format!("{:>8.2}", q.high)).style(Style::default().fg(COLOR_UP)),
+                    Cell::from(format!("{:>8.2}", q.low)).style(Style::default().fg(COLOR_DOWN)),
+                    Cell::from(format!("{:>8.2}", q.pre_close)).style(Style::default().fg(Color::White)),
+                    Cell::from(format!("{:>10}", q.volume_display())).style(Style::default().fg(Color::DarkGray)),
+                ])
+                .style(style)
             } else {
-                (
-                    "加载中...".to_string(),
-                    "--".to_string(),
-                    "--".to_string(),
-                    Color::DarkGray,
-                )
-            };
-
-            let prefix = if i == app.selected_index {
-                "▶ "
-            } else {
-                "  "
-            };
-
-            let line = Line::from(vec![
-                Span::styled(prefix, Style::default().fg(Color::Yellow)),
-                Span::styled(format!("{:<10} ", symbol), Style::default().fg(Color::Cyan)),
-                Span::styled(format!("{:<8} ", name), Style::default().fg(Color::White)),
-                Span::styled(format!("{:>10} ", price), Style::default().fg(color)),
-                Span::styled(format!("{:>8}", change_str), Style::default().fg(color)),
-            ]);
-
-            ListItem::new(line)
+                Row::new(vec![
+                    Cell::from(format!("  {}", symbol)).style(Style::default().fg(Color::Cyan)),
+                    Cell::from("加载中...").style(Style::default().fg(Color::DarkGray)),
+                    Cell::from("      --"),
+                    Cell::from("      --"),
+                    Cell::from("      --"),
+                    Cell::from("      --"),
+                    Cell::from("      --"),
+                    Cell::from("      --"),
+                    Cell::from("      --"),
+                    Cell::from("        --"),
+                ])
+                .style(Style::default().fg(Color::DarkGray))
+            }
         })
         .collect();
 
-    let list = List::new(items).block(
-        Block::default()
-            .title(" 自选股 ")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan)),
-    );
+    let widths = [
+        Constraint::Length(12),
+        Constraint::Length(10),
+        Constraint::Length(10),
+        Constraint::Length(10),
+        Constraint::Length(10),
+        Constraint::Length(10),
+        Constraint::Length(10),
+        Constraint::Length(10),
+        Constraint::Length(10),
+        Constraint::Length(10),
+    ];
 
-    f.render_widget(list, area);
+    let table = Table::new(rows, widths)
+        .header(header)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan)),
+        )
+        .highlight_symbol("▶ ");
+
+    f.render_stateful_widget(table, area, &mut app.watchlist_state);
 }
 
 /// 绘制底部状态栏
@@ -715,11 +631,6 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
     let status = Paragraph::new(Line::from(vec![
         Span::styled(" ", Style::default()),
         Span::styled(&app.status_message, Style::default().fg(Color::DarkGray)),
-        Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
-        Span::styled(app.timeframe.label(), Style::default().fg(Color::Cyan)),
-        Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
-        Span::styled("?", Style::default().fg(Color::Yellow)),
-        Span::styled(" 快捷键", Style::default().fg(Color::DarkGray)),
     ]));
     f.render_widget(status, area);
 }

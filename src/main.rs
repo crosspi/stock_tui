@@ -40,7 +40,7 @@ fn main() -> Result<()> {
         let term_width = terminal.size()?.width as usize;
 
         // 渲染
-        terminal.draw(|f| ui::draw(f, &app))?;
+        terminal.draw(|f| ui::draw(f, &mut app))?;
 
         // 处理事件
         match events.next()? {
@@ -73,8 +73,11 @@ fn main() -> Result<()> {
                                 }
                             }
                             // 全屏切换
-                            KeyCode::Char('f') | KeyCode::Enter => {
+                            KeyCode::Char('f') => {
                                 app.toggle_fullscreen();
+                            }
+                            KeyCode::Enter => {
+                                app.on_enter();
                             }
                             // 自选股上下选择（仅在非全屏时）
                             KeyCode::Up | KeyCode::Char('k') => {

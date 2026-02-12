@@ -1,6 +1,7 @@
 use crate::api;
 use crate::config::Config;
 use crate::models::*;
+use ratatui::widgets::TableState;
 
 /// 应用主状态
 pub struct App {
@@ -8,8 +9,10 @@ pub struct App {
     pub should_quit: bool,
     /// 自选股列表（股票代码）
     pub watchlist: Vec<String>,
-    /// 当前选中的自选股索引
-    pub selected_index: usize,
+    /// 自选股列表状态（用于滚动）
+    pub watchlist_state: TableState,
+    /// 当前激活显示的股票索引（用于详情和K线显示）
+    pub active_index: usize,
     /// 各股票的实时行情缓存
     pub quotes: Vec<Option<StockQuote>>,
     /// 当前股票的K线数据
@@ -39,11 +42,16 @@ impl App {
         let watchlist = config.watchlist;
 
         let quotes = vec![None; watchlist.len()];
+        let mut watchlist_state = TableState::default();
+        if !watchlist.is_empty() {
+            watchlist_state.select(Some(0));
+        }
 
         let mut app = Self {
             should_quit: false,
             watchlist,
-            selected_index: 0,
+            watchlist_state,
+            active_index: 0,
             quotes,
             kline_data: Vec::new(),
             timeframe: TimeFrame::Daily,
@@ -58,6 +66,11 @@ impl App {
 
         app.refresh_all();
         app
+    }
+
+    /// 获取当前列表高亮索引
+    pub fn highlighted_index(&self) -> usize {
+        self.watchlist_state.selected().unwrap_or(0)
     }
 
     /// 刷新所有数据
@@ -87,7 +100,7 @@ impl App {
             .collect();
 
         // 更新状态消息
-        if let Some(Some(q)) = self.quotes.get(self.selected_index) {
+        if let Some(Some(q)) = self.quotes.get(self.active_index) {
             self.status_message =
                 format!("{} {} 最后更新: {} {}", q.symbol, q.name, q.date, q.time);
         }
@@ -95,7 +108,7 @@ impl App {
 
     /// 刷新当前选中股票的K线数据
     pub fn refresh_kline(&mut self) {
-        if let Some(symbol) = self.watchlist.get(self.selected_index) {
+        if let Some(symbol) = self.watchlist.get(self.active_index) {
             match api::fetch_kline_data(symbol, self.timeframe.scale(), 120) {
                 Ok(data) => {
                     self.kline_data = data;
@@ -112,26 +125,52 @@ impl App {
         }
     }
 
-    /// 获取当前选中股票的行情
+    /// 获取当前激活股票的行情
     pub fn current_quote(&self) -> Option<&StockQuote> {
-        self.quotes
-            .get(self.selected_index)
-            .and_then(|q| q.as_ref())
+        self.quotes.get(self.active_index).and_then(|q| q.as_ref())
     }
 
     /// 上移选中
     pub fn select_prev(&mut self) {
-        if self.selected_index > 0 {
-            self.selected_index -= 1;
-            self.refresh_kline();
-        }
+        let i = match self.watchlist_state.selected() {
+            Some(i) => {
+                if i == 0 {
+                    self.watchlist.len() - 1
+                } else {
+                    i - 1
+                }
+            }
+            None => 0,
+        };
+        self.watchlist_state.select(Some(i));
     }
 
     /// 下移选中
     pub fn select_next(&mut self) {
-        if self.selected_index + 1 < self.watchlist.len() {
-            self.selected_index += 1;
+        let i = match self.watchlist_state.selected() {
+            Some(i) => {
+                if i >= self.watchlist.len() - 1 {
+                    0
+                } else {
+                    i + 1
+                }
+            }
+            None => 0,
+        };
+        self.watchlist_state.select(Some(i));
+    }
+
+    /// 处理Enter键：激活选中股票 或 切换全屏
+    pub fn on_enter(&mut self) {
+        let highlighted = self.highlighted_index();
+        if highlighted != self.active_index {
+            self.active_index = highlighted;
+            self.status_message = "正在加载...".to_string();
             self.refresh_kline();
+            // Optional: refresh quotes too, or just wait for next tick
+            // self.refresh_quotes();
+        } else {
+            self.toggle_fullscreen();
         }
     }
 
@@ -306,17 +345,24 @@ impl App {
             return;
         }
 
-        let removed = self.watchlist.remove(self.selected_index);
-        self.quotes.remove(self.selected_index);
+        let idx = self.highlighted_index();
+        let removed = self.watchlist.remove(idx);
+        self.quotes.remove(idx);
         self.status_message = format!("已删除: {}", removed);
 
-        if self.selected_index >= self.watchlist.len() {
-            self.selected_index = self.watchlist.len() - 1;
+        // 更新选中状态
+        if idx >= self.watchlist.len() {
+            self.watchlist_state.select(Some(self.watchlist.len() - 1));
+        } else {
+            self.watchlist_state.select(Some(idx));
         }
+
+        // 删除后，强制激活当前高亮的股票
+        self.active_index = self.highlighted_index();
+
         self.save_config();
         self.refresh_kline();
     }
-
     fn save_config(&mut self) {
         let config = Config {
             watchlist: self.watchlist.clone(),
