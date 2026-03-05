@@ -1,0 +1,188 @@
+##########################################################
+# 新浪财经 API 测试请求集
+# 项目: stock_tui
+# 说明: 用于测试股票实时行情、K线数据等接口
+#       使用 VS Code REST Client 插件 (humao.rest-client) 运行
+##########################################################
+
+@baseReferer = http://finance.sina.com.cn
+
+# ── 代表性股票代码 ──────────────────────────────────
+@cn_sh   = sh600519
+@cn_sz   = sz000001
+@hk      = hk00700
+@us      = gb_aapl
+@cn_name = 贵州茅台
+@hk_name = 腾讯控股
+@us_name = 苹果
+
+# ── K线默认参数 ─────────────────────────────────────
+@kline_datalen_intraday = 240
+@kline_datalen_daily    = 1023
+
+
+###############################################
+#  1. 实时行情 — A 股
+###############################################
+
+### 1.1 A股 上海 ({{cn_name}})
+# 返回格式: GBK 编码的 JS 变量赋值
+# var hq_str_sh600519="贵州茅台,开盘价,昨收,当前价,最高,最低,...,日期,时间,..."
+GET http://hq.sinajs.cn/list={{cn_sh}}
+Referer: {{baseReferer}}
+
+### 1.2 A股 深圳 (平安银行)
+GET http://hq.sinajs.cn/list={{cn_sz}}
+Referer: {{baseReferer}}
+
+### 1.3 默认自选股 — 五粮液
+GET http://hq.sinajs.cn/list=sz000858
+Referer: {{baseReferer}}
+
+### 1.4 默认自选股 — 中国平安
+GET http://hq.sinajs.cn/list=sh601318
+Referer: {{baseReferer}}
+
+
+###############################################
+#  2. 实时行情 — 港股
+###############################################
+
+### 2.1 港股 ({{hk_name}})
+# 字段顺序与 A 股不同, 参见 api.rs::parse_hk_quote
+# fields[1]=中文名, [2]=开盘, [3]=昨收, [6]=当前价, [12]=成交量, [17]=日期, [18]=时间
+GET http://hq.sinajs.cn/list={{hk}}
+Referer: {{baseReferer}}
+
+### 2.2 港股 (阿里巴巴-W)
+GET http://hq.sinajs.cn/list=hk09988
+Referer: {{baseReferer}}
+
+
+###############################################
+#  3. 实时行情 — 美股
+###############################################
+
+### 3.1 美股 ({{us_name}})
+# 字段顺序见 api.rs::parse_us_quote
+# fields[0]=名称, [1]=当前价, [3]=日期时间, [5]=开盘, [26]=昨收
+GET http://hq.sinajs.cn/list={{us}}
+Referer: {{baseReferer}}
+
+### 3.2 美股 (特斯拉)
+GET http://hq.sinajs.cn/list=gb_tsla
+Referer: {{baseReferer}}
+
+
+###############################################
+#  4. 批量实时行情
+###############################################
+
+### 4.1 批量 — 默认自选股
+GET http://hq.sinajs.cn/list=sh600519,sz000858,sh601318
+Referer: {{baseReferer}}
+
+### 4.2 批量 — 跨市场混合
+GET http://hq.sinajs.cn/list={{cn_sh}},{{cn_sz}},{{hk}},{{us}}
+Referer: {{baseReferer}}
+
+
+###############################################
+#  5. K线数据 — A 股 (CN_MarketData)
+###############################################
+
+### 5.1 5分钟K (scale=5)
+GET http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={{cn_sh}}&scale=5&ma=no&datalen={{kline_datalen_intraday}}
+Referer: {{baseReferer}}
+
+### 5.2 15分钟K (scale=15)
+GET http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={{cn_sh}}&scale=15&ma=no&datalen={{kline_datalen_intraday}}
+Referer: {{baseReferer}}
+
+### 5.3 30分钟K (scale=30)
+GET http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={{cn_sh}}&scale=30&ma=no&datalen={{kline_datalen_intraday}}
+Referer: {{baseReferer}}
+
+### 5.4 60分钟K (scale=60)
+GET http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={{cn_sh}}&scale=60&ma=no&datalen={{kline_datalen_intraday}}
+Referer: {{baseReferer}}
+
+### 5.5 日K (scale=240)
+GET http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={{cn_sh}}&scale=240&ma=no&datalen={{kline_datalen_daily}}
+Referer: {{baseReferer}}
+
+### 5.6 周K (scale=1200)
+GET http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={{cn_sh}}&scale=1200&ma=no&datalen={{kline_datalen_daily}}
+Referer: {{baseReferer}}
+
+### 5.7 月K (scale=7200)
+GET http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={{cn_sh}}&scale=7200&ma=no&datalen={{kline_datalen_daily}}
+Referer: {{baseReferer}}
+
+### 5.8 深市日K (平安银行)
+GET http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={{cn_sz}}&scale=240&ma=no&datalen={{kline_datalen_daily}}
+Referer: {{baseReferer}}
+
+
+###############################################
+#  6. K线数据 — 美股 (US_MinKService)
+###############################################
+
+### 6.1 美股日K ({{us_name}})
+# 返回 JSONP: IO([{d,o,h,l,c,v}, ...])
+GET http://stock.finance.sina.com.cn/usstock/api/jsonp.php/IO/US_MinKService.getDailyK?symbol=aapl
+Referer: {{baseReferer}}
+
+### 6.2 美股日K (特斯拉)
+GET http://stock.finance.sina.com.cn/usstock/api/jsonp.php/IO/US_MinKService.getDailyK?symbol=tsla
+Referer: {{baseReferer}}
+
+
+###############################################
+#  7. 港股 K线 (暂未支持)
+###############################################
+
+### 7.1 港股 K线 — 目前 api.rs 返回空列表
+# TODO: 新浪港股 K线接口格式待研究
+# 参考: http://stock.finance.sina.com.cn/hkstock/api/jsonp.php/IO/HK_MinKService.getDailyK?symbol=00700
+
+
+###############################################
+#  8. 边界 / 错误场景
+###############################################
+
+### 8.1 无效股票代码 — 应返回空引号 (数据为空)
+GET http://hq.sinajs.cn/list=sh000000
+Referer: {{baseReferer}}
+
+### 8.2 完全不存在的代码
+GET http://hq.sinajs.cn/list=xx123456
+Referer: {{baseReferer}}
+
+### 8.3 K线 — 极小 datalen (只获取 1 条)
+GET http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={{cn_sh}}&scale=240&ma=no&datalen=1
+Referer: {{baseReferer}}
+
+### 8.4 K线 — 无效 symbol
+GET http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol=xx000000&scale=240&ma=no&datalen=10
+Referer: {{baseReferer}}
+
+### 8.5 缺少 Referer (测试防盗链)
+GET http://hq.sinajs.cn/list={{cn_sh}}
+
+
+###############################################
+#  9. 指数行情
+###############################################
+
+### 9.1 上证指数
+GET http://hq.sinajs.cn/list=sh000001
+Referer: {{baseReferer}}
+
+### 9.2 深证成指
+GET http://hq.sinajs.cn/list=sz399001
+Referer: {{baseReferer}}
+
+### 9.3 创业板指
+GET http://hq.sinajs.cn/list=sz399006
+Referer: {{baseReferer}}
